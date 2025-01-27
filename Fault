@@ -1,0 +1,203 @@
+from google.colab import drive
+drive.mount('/content/drive')
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.metrics import confusion_matrix, accuracy_score, mean_squared_error, mean_absolute_error, r2_score
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.models import Sequential
+
+# Load detection dataset
+detectionData = pd.read_csv('/content/drive/MyDrive/faults/detect_dataset.csv')
+detectionData.drop(['Unnamed: 7', 'Unnamed: 8'], axis='columns', inplace=True)
+
+# Split data for fault detection
+Xdetection = detectionData.iloc[:, 1:].values
+ydetection = detectionData.iloc[:, 0].values
+Xd_train, Xd_test, yd_train, yd_test = train_test_split(Xdetection, ydetection, test_size=0.2, random_state=0)
+
+# Feature scaling
+sc = StandardScaler()
+Xd_train = sc.fit_transform(Xd_train)
+Xd_test = sc.transform(Xd_test)
+
+# Build and train ANN for fault detection
+detectionANN = Sequential()
+detectionANN.add(Dense(units=6, activation='relu'))
+detectionANN.add(Dense(units=6, activation='relu'))
+detectionANN.add(Dense(units=1, activation='sigmoid'))
+detectionANN.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+
+history_detection = detectionANN.fit(Xd_train, yd_train, batch_size=32, epochs=100, validation_data=(Xd_test, yd_test))
+
+# Predict and evaluate detection
+yd_pred = detectionANN.predict(Xd_test)
+yd_pred = (yd_pred > 0.5)
+cm = confusion_matrix(yd_test, yd_pred)
+acc = accuracy_score(yd_test, yd_pred)
+mse = mean_squared_error(yd_test, yd_pred)
+mae = mean_absolute_error(yd_test, yd_pred)
+r2 = r2_score(yd_test, yd_pred)
+tn, fp, fn, tp = cm.ravel()
+
+# Detection results
+print(f"Confusion Matrix:\n{cm}")
+print(f"Accuracy: {acc * 100} %")
+print(f"Mean Squared Error (MSE): {mse}")
+print(f"Mean Absolute Error (MAE): {mae}")
+print(f"R² Score: {r2}")
+
+# Plot MSE vs Epoch for detection
+plt.figure(figsize=(12, 6))
+plt.plot(history_detection.history['loss'], label='Training Loss')
+plt.plot(history_detection.history['val_loss'], label='Validation Loss')
+plt.title('Training and Validation Loss vs Epochs (Detection)')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+plt.show()
+
+# Confusion Matrix for Fault Detection (Colored)
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=['No Fault', 'Fault'], yticklabels=['No Fault', 'Fault'])
+plt.title('Confusion Matrix for Fault Detection')
+plt.xlabel('Predicted')
+plt.ylabel('Actual')
+plt.show()
+
+# Regression Plot for Detection
+plt.figure(figsize=(8, 6))
+plt.scatter(range(len(yd_test)), yd_test, color='blue', label='Actual')
+plt.scatter(range(len(yd_test)), yd_pred, color='red', alpha=0.6, label='Predicted')
+plt.title('Actual vs Predicted Output (Detection)')
+plt.xlabel('Samples')
+plt.ylabel('Output')
+plt.legend()
+plt.show()
+
+# Error Table for Detection
+errors_detection = np.abs(yd_test - yd_pred.flatten())
+error_table_detection = pd.DataFrame({'Actual': yd_test, 'Predicted': yd_pred.flatten(), 'Error': errors_detection})
+print("Error Table for Detection:")
+print(error_table_detection.head())
+
+# Load classification dataset
+classData = pd.read_csv('/content/drive/MyDrive/faults/classData.csv')
+Xclass = classData.iloc[:, 4:].values
+yclass = classData.iloc[:, 0:4].values
+
+# Map fault types
+faults = ["None", "LG Fault", "LL Fault", "LLG Fault", "LLL Fault", "LLLG Fault"]
+yc = []
+for f in yclass:
+    if f[0] == 0 and f[1] == 0 and f[2] == 0 and f[3] == 0:
+        yc.append(faults[0])
+    elif f[0] == 1 and f[1] == 0 and f[2] == 0 and f[3] == 1:
+        yc.append(faults[1])
+    elif f[0] == 0 and f[1] == 1 and f[2] == 1 and f[3] == 0:
+        yc.append(faults[2])
+    elif f[0] == 1 and f[1] == 0 and f[2] == 1 and f[3] == 1:
+        yc.append(faults[3])
+    elif f[0] == 0 and f[1] == 1 and f[2] == 1 and f[3] == 1:
+        yc.append(faults[4])
+    else:
+        yc.append(faults[5])
+yc = np.array(yc)
+
+# Encode fault types
+encoder = LabelEncoder()
+yclass = to_categorical(encoder.fit_transform(yc))
+
+# Split data for classification
+Xc_train, Xc_test, yc_train, yc_test = train_test_split(Xclass, yclass, test_size=0.2, random_state=0)
+Xc_train = sc.fit_transform(Xc_train)
+Xc_test = sc.transform(Xc_test)
+
+# Build and train ANN for classification
+classANN = Sequential()
+classANN.add(Dense(units=12, activation='relu'))
+classANN.add(Dense(units=12, activation='relu'))
+classANN.add(Dense(units=6, activation='softmax'))
+classANN.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+history_class = classANN.fit(Xc_train, yc_train, batch_size=32, epochs=100, validation_data=(Xc_test, yc_test))
+
+# Evaluate classification model
+loss, acc = classANN.evaluate(Xc_test, yc_test)
+print(f'Classification Accuracy: {acc * 100} %')
+
+# Confusion Matrix for Classification (Colored)
+yc_pred = classANN.predict(Xc_test)
+yc_pred = np.argmax(yc_pred, axis=1)
+yc_true = np.argmax(yc_test, axis=1)
+cm_class = confusion_matrix(yc_true, yc_pred)
+
+# Classification metrics
+mse_classification = mean_squared_error(yc_true, yc_pred)
+mae_classification = mean_absolute_error(yc_true, yc_pred)
+r2_classification = r2_score(yc_true, yc_pred)
+
+# Display results for classification
+print(f"Confusion Matrix for Classification:\n{cm_class}")
+print(f"Mean Squared Error (MSE): {mse_classification}")
+print(f"Mean Absolute Error (MAE): {mae_classification}")
+print(f"R² Score: {r2_classification}")
+
+# MSE vs Epoch for classification
+plt.figure(figsize=(12, 6))
+plt.plot(history_class.history['loss'], label='Training Loss')
+plt.plot(history_class.history['val_loss'], label='Validation Loss')
+plt.title('Training and Validation Loss vs Epochs (Classification)')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+plt.show()
+
+# Confusion Matrix for Fault Classification (Colored)
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm_class, annot=True, fmt='d', cmap='Blues', xticklabels=faults, yticklabels=faults)
+plt.title('Confusion Matrix for Fault Classification')
+plt.xlabel('Predicted')
+plt.ylabel('Actual')
+plt.show()
+
+# Regression Plot for Classification
+plt.figure(figsize=(8, 6))
+plt.scatter(range(len(yc_true)), yc_true, color='blue', label='Actual')
+plt.scatter(range(len(yc_pred)), yc_pred, color='red', alpha=0.6, label='Predicted')
+plt.title('Actual vs Predicted Output (Classification)')
+plt.xlabel('Samples')
+plt.ylabel('Fault Type')
+plt.legend()
+plt.show()
+
+# Error Table for Classification
+errors_class = np.abs(yc_true - yc_pred)
+error_table_class = pd.DataFrame({'Actual': yc_true, 'Predicted': yc_pred, 'Error': errors_class})
+print("Error Table for Classification:")
+print(error_table_class.head())
+
+# Pie Chart for Fault Types
+fault_counts_class = {fault: len(yc[yc == fault]) for fault in faults}
+plt.figure(figsize=(8, 8))
+plt.pie(
+    fault_counts_class.values(),
+    labels=fault_counts_class.keys(),
+    autopct='%1.1f%%',
+    startangle=90,
+    colors=sns.color_palette('pastel')
+)
+plt.title('Fault Type Distribution')
+plt.show()
+
+# Correlation Matrix for Classification Features
+correlation_matrix_class = classData.iloc[:, 4:].corr()
+plt.figure(figsize=(10, 8))
+sns.heatmap(correlation_matrix_class, annot=True, cmap='coolwarm', fmt='.2f')
+plt.title('Correlation Matrix for Classification Features')
+plt.show()
